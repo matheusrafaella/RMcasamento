@@ -165,7 +165,7 @@ async function router(){
   const h = raw.replace(/^#\/?/, '');
   if (h.startsWith('produto/')) { aquecerScript(); showView('produto'); if(!PRODUCTS.length) await loadProducts(); renderProduct(h.split('/')[1]); scrollTopo(); }
   else if (h === 'presentes') { showView('presentes'); scrollTopo(); await ensureProductsAndRenderGrid(); }
-  else if (h === 'progresso') { showView('progresso'); if(!PRODUCTS.length) await loadProducts(); renderProgress(); scrollTopo(); }
+  else if (h === 'progresso') { showView('progresso'); if(!PRODUCTS.length) await loadProducts(); sincronizaBronze(); renderProgress(); scrollTopo(); }
   else { showView('home'); scrollTopo(); }
 }
 window.addEventListener('hashchange', router);
@@ -192,6 +192,7 @@ async function ensureProductsAndRenderGrid(){
   await loadProducts();
   renderGrid();
   updateBadges();
+  sincronizaBronze();
   // (o nome é pedido só na hora de reservar — não ao entrar)
 }
 
@@ -601,6 +602,12 @@ function celebrateLevel(l){
     o.onclick=()=>{ clearTimeout(o._t); o.classList.remove('open'); };
   }, 550);
 }
+/* quem tem presente reservado TEM o Bronze (garante mesmo se o selo se perdeu entre aparelhos/sessões) */
+function sincronizaBronze(){
+  if(levels['bronze'] || !myGifts().length) return;
+  levels['bronze']=true; save('mr_levels', levels); saveFamiliaState();
+  if(location.hash.includes('progresso')) renderProgress();
+}
 /* depois do civil, as missões da Fase 1 podem ser resgatadas (quem só vai na festa não fica travado) */
 function resgatar(key){ if(fase1Passou()) unlockLevel(key); }
 /* botão "Fazer agora" da barra de progresso -> leva para onde a ação acontece */
@@ -881,7 +888,13 @@ function showFamiliaPicker(matches){
 async function pickFamilia(row, nome){ await setFamilia(row, nome); }
 function applyState_(d){
   if(Array.isArray(d.desejos) && (d.desejos.length || !wishlist.length)){ wishlist = d.desejos.slice(); save('mr_wishlist', wishlist); }
-  if(d.niveis && typeof d.niveis==='object'){ levels = Object.assign({}, d.niveis); save('mr_levels', levels); }
+  // níveis só SOBEM: junta o do servidor com o do aparelho (antes o servidor sobrescrevia e o Bronze recém-ganho sumia)
+  if(d.niveis && typeof d.niveis==='object'){
+    const juntos = Object.assign({}, d.niveis, levels);
+    const mudou = JSON.stringify(juntos) !== JSON.stringify(d.niveis);
+    levels = juntos; save('mr_levels', levels);
+    if(mudou) saveFamiliaState();   // servidor fica com a versão completa
+  }
 }
 /* aplica a identidade (sem tocar na UI do modal) */
 function applyFamilia(id, nome){
@@ -903,7 +916,7 @@ async function loadFamiliaState(){        // traz desejos/níveis pela linha da 
   try{
     const res=await fetch(`${PRODUTOS_URL}?acao=estado&row=${encodeURIComponent(familia.id)}&aba=${encodeURIComponent(ABA_CONVIDADOS)}`);
     const d=await res.json();
-    if(d && d.ok){ familiaSyncOk=true; applyState_(d); updateBadges(); renderGrid(); if(location.hash.includes('progresso')) renderProgress(); }
+    if(d && d.ok){ familiaSyncOk=true; applyState_(d); sincronizaBronze(); updateBadges(); renderGrid(); if(location.hash.includes('progresso')) renderProgress(); }
   }catch(e){ console.warn('estado do convidado falhou', e); }
 }
 let _saveFamTimer=null;
@@ -941,6 +954,7 @@ function aplicarFase1Passou(){
   await router();                              // mostra a view da URL NA HORA (a rota carrega os produtos que precisar)
   if(!PRODUCTS.length) await loadProducts();   // garante produtos p/ selos/sacola quando a rota inicial é o início
   updateBadges();
+  sincronizaBronze();
   if(familia) loadFamiliaState();              // restaura desejos/níveis em segundo plano
 })();
 
